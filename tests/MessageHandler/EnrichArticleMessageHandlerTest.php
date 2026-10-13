@@ -11,14 +11,21 @@ use App\MessageHandler\EnrichArticleMessageHandler;
 use App\Repository\ArticleRepository;
 use App\Service\ArticleAnalyzerInterface;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
 final class EnrichArticleMessageHandlerTest extends TestCase
 {
+    /** @var ArticleRepository&MockObject */
     private ArticleRepository $articleRepository;
+
+    /** @var ArticleAnalyzerInterface&MockObject */
     private ArticleAnalyzerInterface $analyzer;
+
+    /** @var EntityManagerInterface&MockObject */
     private EntityManagerInterface $entityManager;
+
     private EnrichArticleMessageHandler $handler;
 
     protected function setUp(): void
@@ -79,12 +86,25 @@ final class EnrichArticleMessageHandlerTest extends TestCase
         $article->setContent('Contenu');
 
         $this->articleRepository
+            ->expects($this->once())
             ->method('find')
+            ->with(1)
             ->willReturn($article);
 
         $this->analyzer
+            ->expects($this->once())
             ->method('analyze')
+            ->with('Titre', 'Contenu')
             ->willThrowException(new \RuntimeException('Service LLM hors ligne'));
+
+        $this->entityManager
+            ->expects($this->exactly(2))
+            ->method('persist')
+            ->with($this->isInstanceOf(ArticleProcessingLog::class));
+
+        $this->entityManager
+            ->expects($this->exactly(2))
+            ->method('flush');
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Service LLM hors ligne');
