@@ -22,4 +22,13 @@ services:
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
 
-    App\Service\ArticleAnalyzerInterface: '@App\Service\FakeArticleAnalyzer'
+    App\Service\GeminiArticleAnalyzer: 
+        arguments:
+            $geminiClient: '@gemini.client'
+            $model: '%env(string:GEMINI_MODEL)%'
+
+    App\Service\ArticleAnalyzerInterface: '@App\Service\GeminiArticleAnalyzer'
+
+when@test:
+    services:
+        App\Service\ArticleAnalyzerInterface: '@App\Service\FakeArticleAnalyzer'

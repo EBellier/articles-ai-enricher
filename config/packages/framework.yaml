@@ -5,6 +5,22 @@ framework:
     # Note that the session will be started ONLY if you read or write from it.
     session: true
 
+    http_client:
+        scoped_clients:
+            gemini.client:
+                base_uri: 'https://generativelanguage.googleapis.com/v1beta/'
+                headers:
+                    X-goog-api-key: '%env(GEMINI_API_KEY)%'
+                    Content-Type: 'application/json'
+                    Accept: 'application/json'
+                timeout: 30
+            mistral.client:
+                base_uri: 'https://api.mistral.ai/v1/'
+                auth_bearer: '%env(MISTRAL_API_KEY)%'
+                headers:
+                    Accept: 'application/json'
+                timeout: 10
+
     #esi: true
     #fragments: true
 
