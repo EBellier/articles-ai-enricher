@@ -1,20 +1,23 @@
 # Articles AI Enricher
 
-Projet Symfony de type POC visant à démontrer un pipeline d'enrichissement asynchrone d'articles via une analyse IA.
+Projet Symfony de type POC visant à démontrer un flux d'enrichissement asynchrone d'articles via analyse IA.
 
-Le but est de montrer une architecture Symfony cohérente autour de Doctrine, Messenger, gestion d'état et traçabilité des traitements, sans prétendre à une version production complète.
+L'objectif est d'illustrer une architecture Symfony cohérente autour de Doctrine ORM, Messenger, gestion des états métier et traçabilité des traitements, dans un contexte orienté démonstration technique.
 
 ---
 
-## Vue d'ensemble
+## Objectif du projet
 
-Cette application expose un point d'entrée HTTP qui :
+Cette application simule un workflow éditorial automatisé :
 
-- crée un article en statut `PENDING` ;
-- envoie un message asynchrone dans Symfony Messenger ;
-- traite ensuite l'article dans un handler dédié ;
-- enrichit le contenu avec des données structurées (localité, résumé, tags) ;
-- met à jour l'état de l'article et enregistre un historique de traitement.
+- un article est créé via une route HTTP ;
+- il est enregistré avec un statut initial `PENDING` ;
+- un message est envoyé dans Symfony Messenger ;
+- un handler traite l'article de manière asynchrone ;
+- les données enrichies (localité, résumé, tags) sont enregistrées ;
+- un historique de traitement est conservé en base.
+
+Le projet met en avant des notions de backend Symfony : orchestration de services, traitement asynchrone, gestion d'état, journalisation et tests fonctionnels.
 
 ---
 
@@ -23,7 +26,7 @@ Cette application expose un point d'entrée HTTP qui :
 - PHP 8.4
 - Symfony 8.1
 - Doctrine ORM
-- Messenger
+- Symfony Messenger
 - SQLite pour le développement local et les tests
 - PHPUnit
 - PHPStan
@@ -32,38 +35,45 @@ Cette application expose un point d'entrée HTTP qui :
 
 ## Architecture
 
-- `ArticleController` : point d'entrée HTTP
+### Composants principaux
+
+- `ArticleController` : point d’entrée HTTP
 - `Article` : entité métier principale
 - `EnrichArticleMessage` : message asynchrone
-- `EnrichArticleMessageHandler` : traitement métier
-- `ArticleAnalyzerInterface` : abstraction autour du service d'analyse
-- `ArticleProcessingLog` : journal d’audit des états
-- `ArticleStatus` : enum des statuts du cycle de vie
+- `EnrichArticleMessageHandler` : traitement métier principal
+- `ArticleAnalyzerInterface` : abstraction du service d'analyse
+- `GeminiArticleAnalyzer` : intégration réelle avec l’API Gemini
+- `FakeArticleAnalyzer` : version de test / démonstration sans dépendance externe
+- `ArticleProcessingLog` : audit des étapes de traitement
+- `ArticleStatus` : enum du cycle de vie
 
-### Cycle de vie
+### Cycle de vie d'un traitement
 
 ```text
 POST /articles/demo
         ↓
 ArticleController
         ↓
-Persistance de l'article en PENDING
+Création de l'article en status PENDING
         ↓
-Dispatch Messenger
+Dispatch Message via Messenger
         ↓
 EnrichArticleMessageHandler
         ↓
 PROCESSING → analyse IA → ENRICHED ou FAILED
         ↓
-Journal d'audit dans ArticleProcessingLog
+Historique enregistré dans ArticleProcessingLog
 ```
 
-### Design choices visibles dans le projet
+---
 
-- Interface `ArticleAnalyzerInterface` pour abstraire l'analyseur réel ou factice
-- DTO `ArticleAnalysisResult` pour transporter les résultats structurés
-- Entité `Article` séparée des objets de traitement et des logs
-- Gestion explicite des états métier : `PENDING`, `PROCESSING`, `ENRICHED`, `FAILED`
+## Points d’architecture mis en avant
+
+- abstraction du service d’analyse via `ArticleAnalyzerInterface` ;
+- utilisation d'un DTO `ArticleAnalysisResult` pour structurer les résultats ;
+- séparation claire entre domaine métier, persistance et traitement asynchrone ;
+- gestion explicite des états métier : `PENDING`, `PROCESSING`, `ENRICHED`, `FAILED` ;
+- audit de traitements via `ArticleProcessingLog`.
 
 ---
 
@@ -73,17 +83,16 @@ Journal d'audit dans ArticleProcessingLog
 
 - PHP 8.4+
 - Composer
-- Symfony CLI (optionnel mais recommandé)
+- Symfony CLI (recommandé)
 
 ### Installation
 
 ```bash
 composer install
-php bin/console doctrine:database:create
 php bin/console doctrine:migrations:migrate
 ```
 
-### Démarrage
+### Lancer l’application
 
 ```bash
 symfony serve
@@ -91,21 +100,38 @@ symfony serve
 php -S 127.0.0.1:8000 -t public
 ```
 
-### Exemple de démonstration
+### Endpoint de démonstration
 
 ```bash
 curl -X POST http://127.0.0.1:8000/articles/demo
 ```
 
+Le endpoint retourne un article créé en statut `pending` et envoie ensuite le message pour traitement asynchrone.
+
+---
+
+## Traitement asynchrone
+
+Le message `EnrichArticleMessage` est consommé par Symfony Messenger.
+
+Pour tester le flux complet localement, il faut lancer le worker :
+
+```bash
+php bin/console messenger:consume async -vv
+```
+
+En environnement de test, le projet utilise un analyseur factice pour éviter les dépendances externes et rendre les tests reproductibles.
+
 ---
 
 ## Tests et validation
 
-Le projet contient des tests PHPUnit de base pour vérifier :
+Le projet contient des tests PHPUnit couvrant :
 
 - la création d’un article via l’API ;
-- la gestion d’un identifiant invalide ;
-- le comportement du handler d’enrichissement.
+- la lecture d’un article existant ;
+- le flux complet de création puis enrichissement ;
+- le comportement du handler en cas de succès et d’échec.
 
 ### Commandes utiles
 
@@ -114,26 +140,19 @@ php bin/phpunit
 php vendor/bin/phpstan analyse src tests --no-progress --error-format=table
 ```
 
-### Niveau de qualité actuel
+### État actuel
 
-Le projet est fonctionnel et démontre de bonnes bases Symfony, mais il reste un POC / apprentissage technique plutôt qu’un projet “production-ready”.
-
-Les validations automatiques montrent notamment que :
-
-- les tests PHPUnit passent ;
-- PHPStan signale encore plusieurs points à corriger avant un niveau de qualité plus élevé.
-
-Cela reste un bon signal pour un portfolio technique, mais il faut le présenter honnêtement comme un projet de démonstration, pas comme un service prêt pour la production.
+Le projet est fonctionnel et valide côté tests et analyse statique. Il constitue un bon POC Symfony orienté backend / architecture asynchrone, mais il reste un projet de démonstration technique plutôt qu’un service prêt pour une production exigeante.
 
 ---
 
-## Points à améliorer pour un portfolio plus crédible
+## Points d’amélioration possibles
 
-- corriger les erreurs PHPStan restantes ;
-- ajouter plus de tests sur les cas limites ;
-- clarifier les règles de sécurité et validation des entrées ;
-- sécuriser les variables d’environnement et ne pas committer les fichiers de config locaux ;
-- documenter plus précisément les limites du POC et les prochaines évolutions.
+- enrichir la couverture de tests sur des cas limites ;
+- sécuriser davantage le traitement de sortie IA ;
+- ajouter une vraie stratégie de retry / circuit breaker plus avancée ;
+- documenter plus précisément les variables d’environnement de production ;
+- isoler encore mieux les tests externes et les tests “smoke” IA.
 
 ---
 
@@ -141,10 +160,11 @@ Cela reste un bon signal pour un portfolio technique, mais il faut le présenter
 
 Ce projet montre une bonne compréhension de :
 
-- Symfony MVC + Doctrine ;
-- traitement asynchrone avec Messenger ;
-- architecture orientée événements ;
-- gestion d’état métier ;
-- tests fonctionnels basiques.
+- Symfony Framework Bundle ;
+- Doctrine ORM ;
+- Symfony Messenger ;
+- design orienté services et abstraction ;
+- gestion d’état métier et historique d’audit ;
+- tests automatisés et analyse statique.
 
-C’est un bon projet de démonstration pour une candidature, à condition d’être présenté comme un POC technique clair et structuré, sans sur-prononcer le mot “production-ready”.
+Il s’agit d’un bon projet de démonstration pour un portfolio ou une candidature, présenté de manière honnête comme un POC technique solide et structuré.
