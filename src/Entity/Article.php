@@ -13,7 +13,7 @@ class Article
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    private ?int $id = null;
+    private int $id = 0;
 
     #[ORM\Column(length: 255)]
     private ?string $title = null;
@@ -24,6 +24,9 @@ class Article
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $summary = null;
 
+    /**
+     * @var list<string>|null
+     */
     #[ORM\Column(nullable: true)]
     private ?array $tags = null;
 
@@ -46,7 +49,7 @@ class Article
         $this->createdAt = new \DateTimeImmutable();
     }
 
-    public function getId(): ?int
+    public function getId(): int
     {
         return $this->id;
     }
@@ -87,11 +90,17 @@ class Article
         return $this;
     }
 
+    /**
+     * @return list<string>|null
+     */
     public function getTags(): ?array
     {
         return $this->tags;
     }
 
+    /**
+     * @param list<string>|null $tags
+     */
     public function setTags(?array $tags): static
     {
         $this->tags = $tags;

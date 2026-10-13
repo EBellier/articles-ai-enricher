@@ -2,9 +2,11 @@
 
 namespace App\Tests\Controller;
 
+use App\Entity\Article;
+use App\Enum\ArticleStatus;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\HttpFoundation\Response;
-use EnrichArticleMessage;
 
 final class ArticleControllerTest extends WebTestCase
 {
@@ -24,12 +26,29 @@ final class ArticleControllerTest extends WebTestCase
 
     }
 
-    public function testShowArticleReturnsNotFoundForInvalidId(): void
+    public function testShowArticleReturnsArticleDetails(): void
     {
         $client = static::createClient();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
 
-        $client->request('GET', '/articles/999999');
+        $article = new Article();
+        $article->setTitle('Article de test');
+        $article->setContent('Contenu de test');
+        $article->setStatus(ArticleStatus::PENDING);
+        $article->setLocality('Brest');
+        $article->setSummary('Résumé de test');
+        $article->setTags(['symfony', 'php']);
 
-        $this->assertResponseStatusCodeSame(Response::HTTP_NOT_FOUND);
+        $entityManager->persist($article);
+        $entityManager->flush();
+
+        $client->request('GET', '/articles/' . $article->getId());
+
+        $this->assertResponseIsSuccessful();
+
+        $data = json_decode((string) $client->getResponse()->getContent(), true);
+        $this->assertSame('Article de test', $data['title']);
+        $this->assertSame('Brest', $data['locality']);
+        $this->assertSame(['symfony', 'php'], $data['tags']);
     }
 }
