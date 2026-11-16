@@ -104,7 +104,7 @@ php bin/console doctrine:migrations:migrate
 ```bash
 symfony serve
 # ou
-php -S 127.0.0.1:8000 -t public
+php -S 127.0.0.1:8000 -t public public/index.php
 ```
 
 ### Exemple d’usage
@@ -158,6 +158,5 @@ php bin/console messenger:consume async -vv
 ```
 
 ---
-
 
 
