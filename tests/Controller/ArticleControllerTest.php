@@ -4,6 +4,7 @@ namespace App\Tests\Controller;
 
 use App\Entity\Article;
 use App\Entity\ArticleProcessingLog;
+use App\Enum\AnalysisMode;
 use App\Enum\ArticleStatus;
 use App\Message\EnrichArticleMessage;
 use App\MessageHandler\EnrichArticleMessageHandler;
@@ -39,6 +40,29 @@ final class ArticleControllerTest extends WebTestCase
 
     }
 
+    public function testCreateDemoArticleDispatchesSelectedAnalysisMode(): void
+    {
+        $client = static::createClient();
+        $this->resetDatabase();
+
+        $client->request(
+            'POST',
+            '/articles/demo',
+            server: ['CONTENT_TYPE' => 'application/json'],
+            content: json_encode([
+                'content' => 'Article de test',
+                'mode' => 'gemini',
+            ], JSON_THROW_ON_ERROR),
+        );
+
+        $this->assertResponseStatusCodeSame(Response::HTTP_CREATED);
+
+        $envelopes = static::getContainer()->get('messenger.transport.async')->getSent();
+        $this->assertCount(1, $envelopes);
+        $this->assertInstanceOf(EnrichArticleMessage::class, $envelopes[0]->getMessage());
+        $this->assertSame(AnalysisMode::GEMINI, $envelopes[0]->getMessage()->mode);
+    }
+
     public function testShowArticleReturnsArticleDetails(): void
     {
         $client = static::createClient();
@@ -64,6 +88,7 @@ final class ArticleControllerTest extends WebTestCase
         $this->assertSame('Article de test', $data['title']);
         $this->assertSame('Brest', $data['locality']);
         $this->assertSame(['symfony', 'php'], $data['tags']);
+        $this->assertIsBool($data['workerRunning']);
     }
 
     public function testFullFlowCreatesArticleThenEnrichesIt(): void
@@ -106,5 +131,18 @@ final class ArticleControllerTest extends WebTestCase
         $this->assertCount(2, $logs);
         $this->assertSame(ArticleStatus::PROCESSING, $logs[0]->getStatus());
         $this->assertSame(ArticleStatus::ENRICHED, $logs[1]->getStatus());
+    }
+
+    public function testHomePageShowsEnrichAction(): void
+    {
+        $client = static::createClient();
+
+        $client->request('GET', '/');
+
+        $this->assertResponseIsSuccessful();
+        $this->assertSelectorTextContains('.toolbar button', 'Enrichir l\'article');
+        $this->assertSelectorExists('.mode-button[data-mode="fake"]');
+        $this->assertSelectorExists('.mode-button[data-mode="gemini"]');
+        $this->assertSelectorTextContains('body', 'Prêt');
     }
 }

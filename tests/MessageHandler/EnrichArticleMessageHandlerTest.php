@@ -5,11 +5,13 @@ namespace App\Tests\MessageHandler;
 use App\DTO\ArticleAnalysisResult;
 use App\Entity\Article;
 use App\Entity\ArticleProcessingLog;
+use App\Enum\AnalysisMode;
 use App\Enum\ArticleStatus;
 use App\Message\EnrichArticleMessage;
 use App\MessageHandler\EnrichArticleMessageHandler;
 use App\Repository\ArticleRepository;
 use App\Service\ArticleAnalyzerInterface;
+use App\Service\ArticleAnalyzerResolver;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -23,6 +25,9 @@ final class EnrichArticleMessageHandlerTest extends TestCase
     /** @var ArticleAnalyzerInterface&MockObject */
     private ArticleAnalyzerInterface $analyzer;
 
+    /** @var ArticleAnalyzerResolver&MockObject */
+    private ArticleAnalyzerResolver $resolver;
+
     /** @var EntityManagerInterface&MockObject */
     private EntityManagerInterface $entityManager;
 
@@ -32,11 +37,16 @@ final class EnrichArticleMessageHandlerTest extends TestCase
     {
         $this->articleRepository = $this->createMock(ArticleRepository::class);
         $this->analyzer = $this->createMock(ArticleAnalyzerInterface::class);
+        $this->resolver = $this->createMock(ArticleAnalyzerResolver::class);
         $this->entityManager = $this->createMock(EntityManagerInterface::class);
+
+        $this->resolver
+            ->method('resolve')
+            ->willReturn($this->analyzer);
 
         $this->handler = new EnrichArticleMessageHandler(
             $this->articleRepository,
-            $this->analyzer,
+            $this->resolver,
             $this->entityManager,
             new NullLogger()
         );
@@ -71,7 +81,7 @@ final class EnrichArticleMessageHandlerTest extends TestCase
             ->expects($this->exactly(2))
             ->method('flush');
 
-        $this->handler->__invoke(new EnrichArticleMessage(1));
+        $this->handler->__invoke(new EnrichArticleMessage(1, AnalysisMode::FAKE));
 
         $this->assertSame(ArticleStatus::ENRICHED, $article->getStatus());
         $this->assertSame('Brest', $article->getLocality());
@@ -110,7 +120,7 @@ final class EnrichArticleMessageHandlerTest extends TestCase
         $this->expectExceptionMessage('Service LLM hors ligne');
 
         try {
-            $this->handler->__invoke(new EnrichArticleMessage(1));
+            $this->handler->__invoke(new EnrichArticleMessage(1, AnalysisMode::FAKE));
         } finally {
             $this->assertSame(ArticleStatus::FAILED, $article->getStatus());
         }

@@ -157,6 +157,7 @@ Pour consommer les messages asynchrones :
 php bin/console messenger:consume async -vv
 ```
 
----
+L'interface détecte la présence récente d'un worker grâce à un heartbeat Messenger. Si un article reste en attente et qu'aucun heartbeat n'a été reçu depuis 90 secondes, elle affiche la commande pour démarrer le worker. Cette indication est fondée sur une activité récente, pas sur une vérification absolue du processus.
 
+---
 

@@ -1,0 +1,424 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Articles AI Enricher{% endblock %}
+
+{% block body %}
+    <main class="page" data-controller="article-status">
+        <section class="panel">
+            <h1>Articles AI Enricher</h1>
+
+            <div class="composer-box">
+                <label for="article-content">Texte à enrichir</label>
+                <textarea id="article-content" rows="8" placeholder="Collez ou saisissez un article ici..."></textarea>
+            </div>
+
+            <div class="mode-switcher" aria-label="Sélection du mode de démonstration">
+                <button type="button" class="mode-button active" data-mode="fake" data-action="click->article-status#switchMode" title="Mode démo local : aucun appel réseau, résultat déterministe pour la présentation.">
+                    fakeTest
+                </button>
+                <button type="button" class="mode-button" data-mode="gemini" data-action="click->article-status#switchMode" title="Mode réel Gemini : nécessite une clé API Gemini valide dans .env et un accès réseau fonctionnel.">
+                    withGemini
+                </button>
+            </div>
+
+            <div class="toolbar">
+                <button type="button" data-action="click->article-status#enrichArticle">
+                    Enrichir l'article
+                </button>
+                <span class="status-pill" data-article-status-target="status" data-state="idle">Prêt</span>
+            </div>
+
+            <p class="helper-text" data-article-status-target="helperText" hidden></p>
+
+            <article class="article-card" data-article-status-target="articleCard">
+                <p class="meta">Article courant</p>
+                <h2 data-article-status-target="title">Aucun article chargé</h2>
+                <p data-article-status-target="content">Saisissez un texte puis lancez l'enrichissement asynchrone.</p>
+
+                <dl>
+                    <div>
+                        <dt>Localité</dt>
+                        <dd data-article-status-target="locality">—</dd>
+                    </div>
+                    <div>
+                        <dt>Résumé</dt>
+                        <dd data-article-status-target="summary">—</dd>
+                    </div>
+                    <div>
+                        <dt>Tags</dt>
+                        <dd data-article-status-target="tags">—</dd>
+                    </div>
+                </dl>
+            </article>
+        </section>
+    </main>
+
+    <script type="module">
+        import { Application, Controller } from 'https://cdn.jsdelivr.net/npm/@hotwired/stimulus@3.2.2/+esm';
+
+        class ArticleStatusController extends Controller {
+            static targets = ['status', 'title', 'content', 'locality', 'summary', 'tags', 'helperText'];
+
+            switchMode(event) {
+                const button = event.currentTarget;
+                const mode = button.dataset.mode;
+                const allButtons = document.querySelectorAll('.mode-button');
+
+                allButtons.forEach((el) => el.classList.toggle('active', el === button));
+
+                const status = this.statusTarget;
+                status.textContent = 'Prêt';
+                status.dataset.state = 'idle';
+                status.title = mode === 'gemini'
+                    ? 'Mode réel Gemini : nécessite une clé API Gemini valide dans .env.'
+                    : 'Mode démo local : résultat déterministe sans appel réseau.';
+
+                const helperText = this.helperTextTarget;
+                helperText.hidden = true;
+                helperText.textContent = '';
+            }
+
+            async enrichArticle(event) {
+                const button = event.currentTarget;
+                const status = this.statusTarget;
+                const helperText = this.helperTextTarget;
+                const textarea = document.getElementById('article-content');
+                const mode = document.querySelector('.mode-button.active')?.dataset.mode || 'fake';
+                const content = (textarea?.value || '').trim();
+
+                if (!content) {
+                    status.textContent = 'Texte requis';
+                    status.dataset.state = 'error';
+                    helperText.hidden = false;
+                    helperText.textContent = 'Saisissez ou collez un texte avant de lancer l\'enrichissement.';
+                    textarea?.focus();
+                    return;
+                }
+
+                button.disabled = true;
+                button.textContent = 'En cours de traitement...';
+                status.textContent = 'En cours de traitement...';
+                status.dataset.state = 'processing';
+                helperText.hidden = true;
+                helperText.textContent = '';
+
+                try {
+                    const creationResponse = await fetch('/articles/demo', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ content, mode }),
+                    });
+
+                    if (!creationResponse.ok) {
+                        throw new Error('Impossible de créer l\'article.');
+                    }
+
+                    const payload = await creationResponse.json();
+                    await this.pollArticle(payload.id);
+                } catch (error) {
+                    status.textContent = 'Erreur de traitement';
+                    status.dataset.state = 'error';
+                    button.disabled = false;
+                    button.textContent = 'Réessayer';
+                    helperText.hidden = false;
+                    helperText.textContent = 'Le traitement a échoué. Vérifiez le worker Messenger et réessayez.';
+                    console.error(error);
+                }
+            }
+
+            async pollArticle(articleId) {
+                const status = this.statusTarget;
+                const button = document.querySelector('[data-action*="article-status#enrichArticle"]');
+
+                for (let attempt = 0; attempt < 30; attempt++) {
+                    const response = await fetch(`/articles/${articleId}`, {
+                        headers: { 'Accept': 'application/json' },
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Article introuvable pendant l\'enrichissement.');
+                    }
+
+                    const article = await response.json();
+
+                    if (article.status === 'enriched') {
+                        this.renderArticle(article);
+                        status.textContent = 'Enrichi';
+                        status.dataset.state = 'done';
+                        this.helperTextTarget.hidden = true;
+                        this.helperTextTarget.textContent = '';
+                        button.disabled = false;
+                        button.textContent = 'Enrichir un autre article';
+                        return;
+                    }
+
+                    if (article.status === 'failed') {
+                        status.textContent = 'Échec de l\'enrichissement';
+                        status.dataset.state = 'error';
+                        this.helperTextTarget.hidden = false;
+                        this.helperTextTarget.textContent = 'L\'enrichissement a échoué. Consultez les logs du worker pour plus de détails.';
+                        button.disabled = false;
+                        button.textContent = 'Réessayer';
+                        return;
+                    }
+
+                    if (article.status === 'pending' && !article.workerRunning && attempt >= 4) {
+                        status.textContent = 'En attente du worker';
+                        status.dataset.state = 'processing';
+                        this.helperTextTarget.hidden = false;
+                        this.helperTextTarget.textContent = 'Aucun worker Messenger détecté. Dans un autre terminal, lancez : php bin/console messenger:consume async -vv';
+                    } else {
+                        this.helperTextTarget.hidden = true;
+                        this.helperTextTarget.textContent = '';
+                        status.textContent = 'En cours de traitement...';
+                        status.dataset.state = 'processing';
+                    }
+
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+
+                status.textContent = 'Traitement long';
+                status.dataset.state = 'processing';
+                if (this.helperTextTarget.textContent.startsWith('Aucun worker Messenger détecté.')) {
+                    this.helperTextTarget.hidden = false;
+                }
+                button.disabled = false;
+                button.textContent = 'Vérifier de nouveau';
+            }
+
+            renderArticle(article) {
+                this.titleTarget.textContent = article.title;
+                this.contentTarget.textContent = article.content;
+                this.localityTarget.textContent = article.locality ?? '—';
+                this.summaryTarget.textContent = article.summary ?? '—';
+                this.tagsTarget.textContent = article.tags && article.tags.length ? article.tags.join(', ') : '—';
+            }
+        }
+
+        const application = Application.start();
+        application.register('article-status', ArticleStatusController);
+    </script>
+
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f4f5f7;
+            --panel: #ffffff;
+            --primary: #1d4ed8;
+            --primary-dark: #1e3a8a;
+            --text: #111827;
+            --muted: #6b7280;
+            --border: #e5e7eb;
+            --success: #166534;
+            --success-bg: #dcfce7;
+            --warning: #92400e;
+            --warning-bg: #fef3c7;
+            --error: #991b1b;
+            --error-bg: #fee2e2;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Inter, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #eef4ff 0%, var(--bg) 100%);
+            color: var(--text);
+        }
+
+        .page {
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .panel {
+            width: min(960px, 100%);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 25px 50px rgba(15, 23, 42, 0.08);
+            padding: 2.5rem;
+        }
+
+        h1 {
+            margin: 0 0 1.5rem;
+            font-size: clamp(2rem, 4vw, 3rem);
+        }
+
+        .composer-box {
+            margin-bottom: 1.5rem;
+        }
+
+        .composer-box label {
+            display: block;
+            margin-bottom: 0.6rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 180px;
+            resize: vertical;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.1rem;
+            font: inherit;
+            background: #f9fafb;
+            color: var(--text);
+        }
+
+        .mode-switcher {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .mode-button {
+            border: 1px solid var(--border);
+            background: #f3f4f6;
+            color: var(--text);
+            padding: 0.7rem 1rem;
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mode-button.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border: none;
+            background: var(--primary);
+            color: white;
+            padding: 0.9rem 1.5rem;
+            border-radius: 999px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            background: var(--primary-dark);
+        }
+
+        button:disabled {
+            cursor: wait;
+            opacity: 0.8;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 0.9rem;
+            border-radius: 999px;
+            background: var(--warning-bg);
+            color: var(--warning);
+            font-weight: 600;
+        }
+
+        .helper-text {
+            margin: -0.5rem 0 1.5rem;
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+
+        .helper-text code {
+            display: inline-block;
+            margin-left: 0.25rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 6px;
+            background: #eef2ff;
+            color: var(--primary-dark);
+            font-size: 0.9em;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+
+        .status-pill[data-state="idle"] {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .status-pill[data-state="done"] {
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .status-pill[data-state="error"] {
+            background: var(--error-bg);
+            color: var(--error);
+        }
+
+        .article-card {
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: #f9fafb;
+            padding: 1.5rem;
+        }
+
+        .meta {
+            margin: 0 0 0.5rem;
+            color: var(--muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        h2 {
+            margin: 0 0 1rem;
+            font-size: clamp(1.4rem, 2vw, 2rem);
+        }
+
+        .article-card p {
+            margin: 0 0 1rem;
+            line-height: 1.7;
+        }
+
+        dl {
+            display: grid;
+            gap: 1rem;
+            margin: 1.5rem 0 0;
+        }
+
+        dl > div {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.9rem 1rem;
+        }
+
+        dt {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-bottom: 0.35rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        dd {
+            margin: 0;
+            line-height: 1.6;
+        }
+    </style>
+{% endblock %}
