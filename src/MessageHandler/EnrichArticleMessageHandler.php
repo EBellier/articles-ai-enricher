@@ -6,7 +6,7 @@ use App\Entity\ArticleProcessingLog;
 use App\Enum\ArticleStatus;
 use App\Message\EnrichArticleMessage;
 use App\Repository\ArticleRepository;
-use App\Service\ArticleAnalyzerInterface;
+use App\Service\ArticleAnalyzerResolver;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
@@ -16,7 +16,7 @@ final readonly class EnrichArticleMessageHandler
 {
     public function __construct(
         private ArticleRepository $articleRepository,
-        private ArticleAnalyzerInterface $articleAnalyzer,
+        private ArticleAnalyzerResolver $analyzerResolver,
         private EntityManagerInterface $entityManager,
         private LoggerInterface $logger,
     ) {
@@ -39,11 +39,12 @@ final readonly class EnrichArticleMessageHandler
         $this->entityManager->flush();
 
         try {
-            $this->logger->info('Démarrage de l\'enrichissement IA pour l\'article {id}.', [
+            $this->logger->info('Démarrage de l\'enrichissement IA pour l\'article {id} en mode {mode}.', [
                 'id' => $article->getId(),
+                'mode' => $message->mode->value,
             ]);
 
-            $analysis = $this->articleAnalyzer->analyze($article->getTitle(), $article->getContent());
+            $analysis = $this->analyzerResolver->resolve($message->mode)->analyze($article->getTitle(), $article->getContent());
 
             $article->setLocality($analysis->locality);
             $article->setSummary($analysis->summary);
